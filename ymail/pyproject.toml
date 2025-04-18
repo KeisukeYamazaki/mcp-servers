@@ -1,0 +1,11 @@
+[project]
+name = "ymail"
+version = "0.1.0"
+description = "Yahoo Mail MCP server for email management"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "mcp[cli]",
+    "imaplib2",
+    "email-validator",
+]
