@@ -12,6 +12,8 @@ from dataclasses import dataclass
 import traceback
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
+import base64
+import binascii
 
 
 @asynccontextmanager
@@ -144,6 +146,59 @@ def get_email_body(msg):
             return "Could not decode email body"
 
 
+# More accurate IMAP modified UTF-7 decoder
+def decode_modified_utf7(s):
+    """
+    Decode IMAP's modified UTF-7 encoding for folder names.
+    IMAP's UTF-7 is a variant of UTF-7 as defined in RFC 3501.
+    """
+    if not s:
+        return s
+
+    result = ""
+    i = 0
+    while i < len(s):
+        if s[i] == '&' and i + 1 < len(s):
+            # Find the end of the Base64 encoded sequence
+            j = s.find('-', i + 1)
+            if j == -1:
+                # No closing dash, treat as literal '&'
+                result += '&'
+                i += 1
+            elif j == i + 1:
+                # '&-' means literal '&'
+                result += '&'
+                i += 2
+            else:
+                # Extract the Base64 encoded sequence
+                encoded = s[i+1:j].replace(',', '/')
+                
+                try:
+                    # Add proper Base64 padding if necessary
+                    padding = len(encoded) % 4
+                    if padding > 0:
+                        encoded += '=' * (4 - padding)
+                    
+                    # Base64 decode
+                    decoded_bytes = base64.b64decode(encoded)
+                    
+                    # Handle UTF-16BE encoding (IMAP UTF-7 variant uses BE format)
+                    # This is the key part: IMAP modified UTF-7 encodes directly to UTF-16BE
+                    decoded_text = decoded_bytes.decode('utf-16be')
+                    result += decoded_text
+                except (UnicodeDecodeError, binascii.Error):
+                    # Fallback if decoding fails
+                    result += '&' + s[i+1:j] + '-'
+                    
+                i = j + 1
+        else:
+            # For standard ASCII characters
+            result += s[i]
+            i += 1
+            
+    return result
+
+
 # MCP Tools
 @mcp.tool()
 def list_folders(ctx: Context) -> str:
@@ -159,12 +214,44 @@ def list_folders(ctx: Context) -> str:
         
         folder_list = []
         for folder in folders:
-            folder_parts = folder.decode().split(' "')
-            if len(folder_parts) >= 2:
-                folder_name = folder_parts[-1].strip('"')
-                folder_list.append(folder_name)
+            try:
+                # Parse the folder line: e.g., '(\HasNoChildren) "/" "INBOX"'
+                folder_str = folder.decode('utf-8', errors='replace')
+                
+                # Debug information to see what we're getting
+                ctx.info(f"Raw folder: {folder_str}")
+                
+                # Extract the folder name (last quoted part)
+                match = re.search(r'"([^"]+)"$', folder_str)
+                if match:
+                    folder_name = match.group(1)
+                    # Log before decoding
+                    ctx.info(f"Before decoding: {folder_name}")
+                    
+                    # Decode from IMAP's modified UTF-7
+                    decoded_name = decode_modified_utf7(folder_name)
+                    
+                    # Log after decoding
+                    ctx.info(f"After decoding: {decoded_name}")
+                    
+                    folder_list.append(decoded_name)
+                else:
+                    # Fallback if pattern doesn't match
+                    folder_parts = folder_str.split(' "')
+                    if len(folder_parts) >= 2:
+                        folder_name = folder_parts[-1].strip('"')
+                        decoded_name = decode_modified_utf7(folder_name)
+                        folder_list.append(decoded_name)
+                    else:
+                        ctx.error(f"Could not parse folder structure: {folder_str}")
+            except Exception as e:
+                ctx.error(f"Error processing folder: {str(e)}\n{traceback.format_exc()}")
+                continue
         
-        return json.dumps({"folders": folder_list}, indent=2)
+        # Log the final folder list for debugging
+        ctx.info(f"Final folder list: {folder_list}")
+        
+        return json.dumps({"folders": folder_list}, indent=2, ensure_ascii=False)
     except Exception as e:
         ctx.error(f"Error listing folders: {str(e)}\n{traceback.format_exc()}")
         return f"Error listing folders: {str(e)}"
@@ -230,7 +317,7 @@ def search_emails(query: str, folder: str = "INBOX", limit: int = 10, ctx: Conte
         if not results:
             return f"No emails found matching query: {query}"
             
-        return json.dumps({"results": results, "count": len(results), "folder": folder}, indent=2)
+        return json.dumps({"results": results, "count": len(results), "folder": folder}, indent=2, ensure_ascii=False)
     except Exception as e:
         ctx.error(f"Error searching emails: {str(e)}\n{traceback.format_exc()}")
         return f"Error searching emails: {str(e)}"
@@ -278,7 +365,7 @@ def read_email(email_id: str, folder: str = "INBOX", ctx: Context = None) -> str
             "body": body[:2000] + ("..." if len(body) > 2000 else "")  # Truncate long bodies
         }
         
-        return json.dumps(email_data, indent=2)
+        return json.dumps(email_data, indent=2, ensure_ascii=False)
     except Exception as e:
         ctx.error(f"Error reading email: {str(e)}\n{traceback.format_exc()}")
         return f"Error reading email: {str(e)}"
@@ -304,7 +391,7 @@ def get_unread_count(folder: str = "INBOX", ctx: Context = None) -> str:
         # Count unread messages
         unread_count = len(messages[0].split())
         
-        return json.dumps({"folder": folder, "unread_count": unread_count})
+        return json.dumps({"folder": folder, "unread_count": unread_count}, ensure_ascii=False)
     except Exception as e:
         ctx.error(f"Error getting unread count: {str(e)}\n{traceback.format_exc()}")
         return f"Error getting unread count: {str(e)}"
