@@ -26,8 +26,15 @@ A Model Context Protocol (MCP) server that provides tools for interacting with G
   ```bash
   git clone --filter=blob:none --no-checkout https://github.com/KeisukeYamazaki/mcp-servers.git
   cd mcp-servers
+  
+  # If using sparse-checkout for the first time
+  git sparse-checkout init --cone
   git sparse-checkout set gsheet
   git checkout
+  
+  # If you've already checked out other directories, use this instead
+  # git sparse-checkout add gsheet
+  # git checkout
   ```
 
 2. Configure Google API credentials:
@@ -35,7 +42,6 @@ A Model Context Protocol (MCP) server that provides tools for interacting with G
   - Enable the Google Drive API and Google Sheets API
   - Create OAuth credentials and download the credentials JSON file
   - Place the credentials file in the project directory as `credentials.json`
-  - Alternatively, you can use a service account by placing a `service_account.json` file in the project directory
 
 ## Usage
 

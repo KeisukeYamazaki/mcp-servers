@@ -26,8 +26,15 @@ A Model Context Protocol (MCP) server that provides tools for interacting with G
   ```bash
   git clone --filter=blob:none --no-checkout https://github.com/KeisukeYamazaki/mcp-servers.git
   cd mcp-servers
+  
+  # If using sparse-checkout for the first time
+  git sparse-checkout init --cone
   git sparse-checkout set gdoc
   git checkout
+  
+  # If you've already checked out other directories, use this instead
+  # git sparse-checkout add gdoc
+  # git checkout
   ```
 
 2. Configure Google API credentials:
